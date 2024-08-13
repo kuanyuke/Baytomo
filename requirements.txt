@@ -1,0 +1,8 @@
+matplotlib
+numpy
+configobj
+pyzmq
+Cython
+scipy
+joblib
+pandas
