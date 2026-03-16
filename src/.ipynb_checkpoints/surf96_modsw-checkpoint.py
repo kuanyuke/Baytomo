@@ -89,8 +89,7 @@ class FMST(object):
         e = self.bilin(x2, x, x2, x1)
         f = self.bilin(x, x1, x2, x1)
 
-        #v = (a * b * v1) + (a * c * v4) + (d * e * v2) + (d * f * v3)
-        v = (a * b * v1) + (a * c * v3) + (d * e * v2) + (d * f * v4)
+        v = (a * b * v1) + (a * c * v4) + (d * e * v2) + (d * f * v3)
 
         return v
 

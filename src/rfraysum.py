@@ -24,25 +24,114 @@ from ctypes import *
 import gc
 from joblib import Parallel, delayed, parallel_backend
 import multiprocessing
-import multiprocessing as mp
 import random
-import time as cal_time
+import time as timer 
 degrees2kilometers = 111.19492664455873
+log_file = "raysum_timeout_log.txt"
+import signal
+import time
 
-def _pad(array, n):
+# put near top of raysum.py
+import multiprocessing as mp
+
+def _raysum_worker(q, args):
+    try:
+        res = raysum.raysum_interface(*args)
+        q.put(("ok", res))
+    except Exception as e:
+        # pass back the exception string so parent can raise/log
+        q.put(("err", f"{type(e).__name__}: {e}"))
+
+import multiprocessing
+import queue
+import time
+import ctypes
+import threading
+
+def terminate_thread(thread):
+    """Force kill a thread - works for C/Fortran code"""
+    if not thread.is_alive():
+        return
+        
+    # Get thread ID
+    tid = ctypes.c_long(thread.ident)
+    
+    # Send exception to the thread
+    exception = ctypes.py_object(SystemExit)
+    count = ctypes.c_ulong(1)
+    
+    # This forces the thread to exit
+    ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, exception)
+    
+    # Wait a bit
+    thread.join(timeout=0.1)
+    
+    # If still alive, use more aggressive method
+    if thread.is_alive():
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(tid, None)
+
+def run_raysum_thread_timeout(args, timeout=10):
     """
-    Pad an array with zeros up to a specified length.
+    Thread-based timeout with forced termination
+    """
+    result_container = []
+    error_container = []
+    
+    def raysum_worker():
+        try:
+            result = raysum.raysum_interface(*args)
+            result_container.append(result)
+        except Exception as e:
+            error_container.append(str(e))
+    
+    thread = threading.Thread(target=raysum_worker)
+    thread.daemon = True  # Thread will die if main thread exits
+    thread.start()
+    
+    start_time = time.time()
+    thread.join(timeout)
+    
+    if thread.is_alive():
+        # Force kill the thread
+        print(f"KILLING raysum thread after {timeout}s")
+        terminate_thread(thread)
+        return None, "TIMEOUT_KILLED"
+    
+    # Check results
+    if result_container:
+        return result_container[0], None
+    elif error_container:
+        return None, error_container[0]
+    else:
+        return None, "UNKNOWN_ERROR"
 
-    Parameters:
-        array (numpy.ndarray): Input array.
-        n (int): Target length.
 
-    Returns:
-        numpy.ndarray: Padded array.
-    """    
-    tmp = np.zeros(n)
-    tmp[:array.shape[0]] = array
-    return tmp
+# Signal handler to raise an exception when time limit is exceeded
+##def handler(signum, frame):
+#    raise TimeoutError("Timeout reached")
+
+#def run_raysum_interface(*args):
+#   try:
+#        result = raysum.raysum_interface(*args)
+#        return result
+#    except Exception as e:
+#        return None
+
+
+##def _pad(array, n):
+#    """
+#    Pad an array with zeros up to a specified length.
+
+ #   Parameters:
+#        array (numpy.ndarray): Input array.
+ #       n (int): Target length.
+
+ #   Returns:
+ #       numpy.ndarray: Padded array.
+ #   """    
+ ##   tmp = np.zeros(n)
+ #   tmp[:array.shape[0]] = array
+ #   return tmp
 
 def _gauss_filt(dt, nft, f0):
     """
@@ -190,7 +279,7 @@ class RFraysumModRF(object):
                      'qs': '%.1f',
                      'n': '%d'}
         self.maxlayer =15
-        self.cacl = False
+        self.cacl = True
 
     def _init_obsparams(self):
         """Extract parameters from observed x-data (time vector).
@@ -368,10 +457,10 @@ class RFraysumModRF(object):
         nsv: tuple with near-surface S velocity and Poisson's ratio
             (will be computed by input model, if None)
         """
-        
-        gauss = self.modelparams['gauss']
+
+        gauss = self.modelparams['gauss'][idx]
         water = self.modelparams['water']
-        p = float(self.modelparams['p'][idx]) #laptop
+        p = float(self.modelparams['p'][idx])
         p = p/degrees2kilometers
         wtype = self.modelparams['wtype']
 
@@ -414,26 +503,62 @@ class RFraysumModRF(object):
         
         nlyar, h, vp, vs, iso, ds, rho, plunge = self.buildmodel( h, vp, vs, ra, rho)
 
+        args = (nlyar, h, rho, vp, vs,
+                dp, ds, trend,
+                plunge, strike, dip, iso, iphase,
+                ntr, baz, slow, sta_dx, sta_dy,
+                mults, nsamp, dt, gauss, align, self.tshft, out_rot, phname_in)
 
-        _,  _, _,  tr_cart, tr_ph = raysum.raysum_interface(nlyar, h, rho, vp, vs,
-                                                    dp, ds, trend,
-                                                    plunge, strike, dip, iso, iphase,
-                                                    ntr, baz, slow, sta_dx, sta_dy,
-                                                    mults, nsamp, dt, gauss, align, self.tshft, out_rot, phname_in)
+###        signal.signal(signal.SIGALRM, handler)
+###        signal.alarm(10)  # Set timeout in seconds
+    
+###        try:
+###            # Run the function
+###           result = raysum.raysum_interface(nlyar, h, rho, vp, vs, dp, ds, trend, plunge, strike, dip, iso, iphase,
+###                                             ntr, baz, slow, sta_dx, sta_dy, mults, nsamp, dt, gauss, align, self.tshft, out_rot, phname_in)
+###         signal.alarm(0)  # Cancel the alarm once function finishes before timeout
+            
+###        except TimeoutError:
+###            print(f"Timeout reached, stopping computation.")
+###            print (nlyar, h, rho, vp, vs, dp, ds, trend, plunge, strike, dip)
+###            return np.nan, np.nan  # Or any other appropriate value for timeout cases
+###        except Exception as e:
+###            print(f"Error in raysum_interface: {e}") 
+###            return np.nan, np.nan
+
+#        _,  _, _,  tr_cart, tr_ph = raysum.raysum_interface(nlyar, h, rho, vp, vs,
+#                                                   dp, ds, trend,
+#                                                   plunge, strike, dip, iso, iphase,
+#                                                   ntr, baz, slow, sta_dx, sta_dy,
+#                                                   mults, nsamp, dt, gauss, align, self.tshft, out_rot, phname_in)
+
+        result, error = run_raysum_thread_timeout(args, timeout=10)
+
+
+        if error == "TIMEOUT_KILLED":
+            print (f"Raysum timeout/error for station: {error}")
+            #print (h, rho, vp, vs,strike, dip)
+            return np.nan, np.nan
+        if error:
+            print (f"Raysum timeout/error for station: {error}")
+            #print (h, rho, vp, vs,strike, dip)
+            return np.nan, np.nan
+    
+        _,  _, _,  tr_cart, tr_ph = result
         tshift = int(self.nsamp - int(self.tshft/dt))
         qrfdata = []
         trROTs = tr_ph[:, :int(nsamp), :len(bazz)]
 
 
         
-
         for i in range(len(bazz)):
             RFS =deconv_waterlevel(i, trROTs, nsamp, self.fsamp, dt, waterlevel=0.001, gfilt=1, rot = out_rot)
             if RFS is np.nan:
+                #print ("no values")
                 return np.nan, np.nan
             RFR = RFS[0]
             qrfdata.append( RFR.astype(float)[tshift:tshift+self.obsx.size])
-
+        
         
         return time[:self.obsx.size], qrfdata
 
@@ -456,10 +581,9 @@ class RFraysumModRF(object):
         sta_rho = self.prop_rho[loc,:]
         sta_von = self.prop_von[loc,:,:]
 
-	    
         h, sta_vp, sta_vs, sta_ra, sta_rho, dip, strike = Model.get_stepmodel_from_grids_dip(
                 sta_von, self.dz, sta_vp, sta_vs, sta_ra, sta_rho, self.zmax)
-     
+
         h = h.astype(float)
         sta_vp = sta_vp.astype(float)
         sta_vs = sta_vs.astype(float)
@@ -471,7 +595,8 @@ class RFraysumModRF(object):
             baz = self.obsbaz
         else:
             baz = self.obsbaz[i]
-                
+
+        
         time, qrf = self.compute_rf(i,h, sta_vp, sta_vs, sta_ra, sta_rho, strike, dip, baz, **params)
         return time, qrf 
 
@@ -522,10 +647,11 @@ class RFraysumModRF(object):
         
 
 
-    def run_model(self,  vp, vs, ra, rho,  von,  **params):
+    def run_model(self,   vp, vs, ra, rho,  von,  **params):
         # 'cacl' will later indicate whether the proposed model will be accepted or not.
         # If the modification involves noise parameters, the proposed model remains the same as the current one,
         # and the model is returned; thus, 'cacl' is set to False.
+        self.cacl = False
 
         # check if smallest velocity on the top layer
         prop_vs = vs.reshape(self.nx * self.ny, self.nz)
@@ -551,9 +677,6 @@ class RFraysumModRF(object):
         # it won't be recalculated.
         self.prop_rf  = copy.deepcopy(self.current_rf)
 
-        # If the modification is accepted, the current model will be updated, so 'cacl' is set to True.
-        self.cacl = False
-
         # If every dipping model at each grid on the X-Y plane is the same as the previous one, return the current RF array.
         if len(difflocs) == 0:
             return self.obsx, self.prop_rf
@@ -562,6 +685,8 @@ class RFraysumModRF(object):
        
         # If not, calculate the number of different dipping models for stations that need to be calculated.
         ndiffs = sum(1 for loc in self.staingrididx if loc in difflocs)
+        
+        t0 = timer.time()
 
         for i, loc in enumerate(self.staingrididx):
         
@@ -569,6 +694,7 @@ class RFraysumModRF(object):
                 
                 continue
     
+            
             time, qrf = self.run_raysum_single(i, loc,  **params)
 
                 
@@ -581,8 +707,5 @@ class RFraysumModRF(object):
                 self.prop_rf[start_trace_idx:end_trace_idx] = qrf
 
 
-
-
-        # Set 'cacl' to True to indicate that the proposed model has been calculated.
         self.cacl = True
         return self.obsx, self.prop_rf

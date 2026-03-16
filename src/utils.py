@@ -32,6 +32,40 @@ def read_stas_dict(file,idx):
     df = pd.read_csv(file, usecols=[0, 2, 3])
     return df.set_index(idx).T.to_dict('list') 
 
+
+def read_rfstas_dict2(file, idx):
+    """
+    Processes a CSV file containing receiver function station data and returns dictionaries of source coordinates and back-azimuth values.
+
+    Parameters:
+    - file (str): The path to the CSV file to be read.
+    - idx (str): The column name used to group the data.
+
+    Returns:
+    - src_dict (dict): A dictionary where keys are source indices, and values are lists of source coordinates (x and y).
+    - baz_dict (dict): A dictionary where keys are source indices, and values are lists of back-azimuth values.
+    - bins_list (list): A list containing one bin value per unique source index.
+    """
+
+    df = pd.read_csv(file)
+    
+    src_dict = {}
+    baz_dict = {}
+    bins_list = []
+
+    for srcidx, group in df.groupby(idx): 
+        src_coords = group[['src_x', 'src_y']].iloc[0].tolist()
+        baz_values = group['baz'].tolist()
+        bins_value = group['bins'].iloc[0]  # Take only the first value
+
+        src_dict[srcidx] = src_coords
+        baz_dict[srcidx] = baz_values
+        bins_list.append(bins_value)
+
+    return src_dict, baz_dict, bins_list
+
+
+
 def read_rfstas_dict(file, idx):
     """
     Processes a CSV file containing receiver function station data and returns dictionaries of source coordinates and back-azimuth values.
@@ -60,6 +94,7 @@ def read_rfstas_dict(file, idx):
         baz_dict[srcidx] = baz_values
     
     return src_dict, baz_dict,  df['bins'].tolist() 
+
 def read_rfstas_dict0(file, idx):
     df = pd.read_csv(file)
     
@@ -120,7 +155,7 @@ def string_decode(section):
     return section
 
 def save_config(targets, configfile, grids =dict(), priors=dict(),\
-                initparams=dict(), tempparams=dict(),mutilparams=dict()):
+                initparams=dict(), mutilparams=dict()):
     """
     Conveniently saves a configfile that you can easily use to view the data
     and parameters used for inversion. This configfile (.pkl) will also be used
@@ -146,7 +181,6 @@ def save_config(targets, configfile, grids =dict(), priors=dict(),\
     data['grids'] = grids
     data['priors'] = priors
     data['initparams'] = initparams
-    data['tempparams'] = tempparams
     
     with open(configfile, 'wb') as f:
         pickle.dump(data, f)     

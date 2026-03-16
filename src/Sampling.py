@@ -26,26 +26,8 @@ PROPDIST = {'vsmod': 0, 'ramod': 1, 'vmod': 2, 'vsbirth/death': 3, 'rabirth/deat
 
 
 class Sampling(object):
-    def __init__(self,  priors, grids, propdist, swd=False, swdnoisepriors=None, swdnoiseinds=None, rf=False, ramod=False, rstate=None):
-        """
-        Initialize the Sampling class.
-
-        Parameters:
-        - priors: Dictionary containing prior information.
-        - grids: Grids object containing information about the model grids.
-        - propdist: PropDist object for the proposal distribution.
-        - swd: Boolean indicating whether to include surface wave dispersion (SWD) targets.
-        - swdnoisepriors: List containing prior information for SWD noise parameters.
-        - swdnoiseinds: Indices of SWD noise parameters.
-        - rf: Boolean indicating whether to include receiver function (RF) targets.
-        - ramod: Boolean indicating whether to use radial anisotropy in the modeling.
-        - rstate: Random state for reproducibility.
-
-        Other Attributes:
-        - dvs2, dra2: Variance parameters.
-        - ind_death: Index for death.
-        - birthnucleus: Nucleus for birth.
-        """
+    def __init__(self,  chainidx,  priors, grids, propdist, swd=False, swdnoisepriors=None, swdnoiseinds=None, rf=False, ramod=False, rstate=None):
+        self.chainidx = chainidx
         self.priors = priors
         self.grids = grids
         self.propdist = propdist
@@ -64,44 +46,30 @@ class Sampling(object):
         self.birthnucleus=None
 
     def draw_initvpvs(self, ncells):
-        """
-        Draw the initial vp/vs ratio from the prior distribution.
-
-        Returns:
-        - float: Initial vp/vs ratio.
-        """      
-
         if type(self.priors['vpvs']) == np.float64:
             return self.priors['vpvs']
 
         vpvsmin, vpvsmax = self.priors['vpvs']
 
-
         return self.rstate.uniform(low=vpvsmin, high=vpvsmax)
+    
 
 
     def draw_initmodel(self, grids):
-        """
-        Draw the initial model from the prior distribution.
-
-        Parameters:
-        - grids: Grids object containing information about the model grids.
-
-        Returns:
-        - tuple: Initial model (vs, ra, nucleus).
-        """        
         # prior paremeters
         keys = self.priors.keys()
         vsmin, vsmax = self.priors['vs']
         self.ncellmin, self.ncellmax = self.priors['ncells']
 
 
+
         ncells = self.ncellmin
 
         # randomly choose vs, ra and assign to every  nucleu
         vsmean = 0.5 * (vsmin + vsmax)
-        #vsmean = 4
         vs = self.rstate.normal(vsmean, 0.2, size=ncells)
+       # vs  = self.rstate.uniform(low=vsmin, high=vsmax, size=ncells)
+
 
         vs.sort()
 
@@ -123,17 +91,65 @@ class Sampling(object):
         return (model if self._validmodel(model)
                else self.draw_initmodel(grids))
 
+    def draw_init_swdnoiseparams0(self, targets):
+        if not self.swd:
+            return [], []
+        # for each target the noiseparams are (fraction and sigma)
+        noiserefs = ['noise_frac', 'noise_sigma']
+        init_noise = np.ones(targets.nswdtargets*2) * np.nan
+        fracfix = np.zeros(targets.nswdtargets*2, dtype=bool)
+        self.swdnoisepriors = []
+        init_idx = 0
+        
+        for target in targets.swdtargets:
+            for i in range(target.obsdata.nobs):
+                for j, noiseref in enumerate(noiserefs):
+                    idx = (2*i)+j + init_idx
+                    noiseprior = self.priors[target.noiseref + noiseref]
+
+                    if type(noiseprior) in [int, float, np.float64]:
+                        fracfix[idx] = True
+                        init_noise[idx] = noiseprior
+                    else:
+                        init_noise[idx] = self.rstate.uniform(
+                            low=noiseprior[0], high=noiseprior[1])
+
+                    self.swdnoisepriors.append(noiseprior)
+            init_idx = 2 * target.obsdata.nobs
+
+        self.swdnoiseinds = np.where(fracfix == 0)[0]
+        return init_noise, fracfix
+
+    def draw_init_rfnoiseparams0(self, targets):#
+        if not self.rf:
+            return [], []
+
+
+        noiserefs = ['noise_corr', 'noise_sigma']
+        init_noise = np.ones(targets.nrftargets*2) * np.nan
+        corrfix = np.zeros(targets.nrftargets*2, dtype=bool)
+        
+
+        self.rfnoisepriors = []
+        for target in targets.rftargets:
+            for i in range(target.obsdata.nobs):
+                for j, noiseref in enumerate(noiserefs):
+                    idx = (2*i)+j
+                    noiseprior = self.priors[target.noiseref + noiseref]
+                    if type(noiseprior) in [int, float, np.float64]:
+                        corrfix[idx] = True
+                        init_noise[idx] = noiseprior
+                    else:
+                        init_noise[idx] = self.rstate.uniform(
+                            low=noiseprior[0], high=noiseprior[1])
+
+                    self.rfnoisepriors.append(noiseprior)
+        self.rfnoiseinds = np.where(corrfix == 0)[0]
+        if len(self.rfnoiseinds) == 0:
+            logger.warning('All your noise parameters are fixed. On Purpose?')
+        return init_noise, corrfix
+
     def draw_init_swdnoiseparams(self, targets):
-        """
-        Draw the initial surface wave dispersion (SWD) noise parameters.
-
-        Parameters:
-        - targets: Targets object containing information about the targets.
-
-        Returns:
-        - tuple: Initial SWD noise parameters (init_noise, fracfix).
-        """
-
         if not self.swd:
             return [], []
         # for each target the noiseparams are (fraction and sigma)
@@ -155,15 +171,14 @@ class Sampling(object):
                     init_fracfix = False
                     init_noise_value = self.rstate.uniform(
                             low=noiseprior[0], high=noiseprior[1])
-
-                    if noiseprior[1] > 0.5:
+                    
+                    if   targets.nrftargets !=0 and noiseprior[1] > 0.5:
                         noisemax = 0.5
                     else:
                         noisemax = noiseprior[1] 
                     init_noise_value =  self.rstate.uniform(noiseprior[0], noisemax) 
 
-                    
-    
+
                 self.swdnoisepriors.append(noiseprior)            
                 for i in range(target.obsdata.nobs):
                     idx = (2*i)+j + init_idx
@@ -178,15 +193,7 @@ class Sampling(object):
         return init_noise, fracfix
 
     def draw_init_rfnoiseparams(self, targets):#, rfinit):
-        """
-        Draw the initial receiver function (RF) noise parameters.
-
-        Parameters:
-        - targets: Targets object containing information about the targets.
-
-        Returns:
-        - tuple: Initial RF noise parameters (init_noise, corrfix).
-        """
+        # for each target the noiseparams are (corr and sigma)
         if not self.rf:
             return [], []
 
@@ -208,12 +215,19 @@ class Sampling(object):
                     init_corrfix = False
                     init_noise_value = self.rstate.uniform(
                             low=noiseprior[0], high=noiseprior[1])
-
-                    if noiseprior[1] > 0.01:
-                        noisemax = 0.01 
+                    #if  targets.nswdtargets !=0 and noiseprior[1] < 0.01:
+                    if  targets.nswdtargets !=0 and noiseprior[0] < 0.005:
+                        noisemin= 0.005
+                    #if  targets.nswdtargets !=0 and noiseprior[1] >= 0.01:
+                    ##    noisemin= 0.005
+                     #   noisemax = 0.01
                     else:
-                        noisemax = noiseprior[1] 
-                    init_noise_value =  self.rstate.uniform(noiseprior[0], noisemax) 
+                        noisemin = noiseprior[0] 
+                        #noisemax = noiseprior[1] 
+                    
+                    init_noise_value =  self.rstate.uniform(noisemin, noiseprior[1]) 
+                    #init_noise_value =  self.rstate.uniform(noiseprior[0] , noisemax) 
+                    #init_noise_value = 0.005
 
                 self.rfnoisepriors.append(noiseprior)
                 for i in range(target.obsdata.nobs):
@@ -221,6 +235,8 @@ class Sampling(object):
                     corrfix[idx] = init_corrfix
                     init_noise[idx] = init_noise_value
 
+                 
+       
         self.rfnoiseinds = np.where(corrfix == 0)[0]
         self.rfcounters = np.ones(len(self.rfnoiseinds))  # Initialize counters for rfnoiseinds
         
@@ -265,17 +281,18 @@ class Sampling(object):
                 target.valuation.init_covariance_gauss(
                     target_noise_corr, size, nobs, rcond=rcond)
                 target.get_covariance = target.valuation.get_covariance_gauss
-                
+
             else:
                 message = 'The noise correlation automatically defaults to the \
 exponential law. Explicitly state a noise reference for your user target \
 (target.noiseref) if wished differently.'
                 logger.info(message)
-
+                # target.noiseref == 'swd'
+                # target.get_covariance = target.valuation.get_covariance_nocorr
             nnobs = end
+        #return targets
 
-
-    def init_lastmodel_fromchain(self, datapath=None, chainidx=0, phase=1):
+    def init_lastmodel_fromchain(self, datapath=None, chainidx=0):
         """
         Initialize the model parameters from the last available saved data in the specified chain.
 
@@ -299,10 +316,20 @@ exponential law. Explicitly state a noise reference for your user target \
         files = []
         size = []
 
+        # First: decide phase (check using modelsvs only)
+        pattern_phase1 = filepattern % (chainidx, 2, 'modelsvs')
+        
+        if glob.glob(pattern_phase1):
+            phase = 2
+        else:
+            phase = 1
+
+
         index = -1
-        iter_phase2 = 0
         for i, ftype in enumerate(filetypes):
+
             chainfile = sorted(glob.glob(filepattern % (chainidx, phase,  ftype)))[0]
+
 
             if ftype == 'modelsvon':
                 txtdata = np.genfromtxt(
@@ -324,13 +351,13 @@ exponential law. Explicitly state a noise reference for your user target \
                                 for v in txtdata], dtype=object)
                 if i == 0:
                     iiter = len(data)
-        
                 data = data[index]
 
             else:
                 data = np.loadtxt(chainfile)
                 data = data[index]
             files.append(data)
+
 
 
         ivs, ira, ivon, iswdnoise, irfnoise, ivpvs = files
@@ -341,31 +368,6 @@ exponential law. Explicitly state a noise reference for your user target \
         self.propdist = propdist
         
     def sampling(self,modify, model, vpvs, rfnoise, swdnoise, currentkdtree ):
-        """
-        Perform a Metropolis-Hastings sampling step to generate a proposal for model parameters.
-
-        Parameters:
-            - modify (str): The type of modification to perform, e.g., 'vsmod', 'ramod', 'vmod', 'zvmod', 'zbirth', 'birth', 'death', 'rfnoise', 'swdnoise', 'vpvs'.
-            - model (object): The current model object.
-            - vpvs (float): The current VP/VS ratio.
-            - rfnoise (ndarray): The current RF noise parameters.
-            - swdnoise (ndarray): The current SWD noise parameters.
-            - currentkdtree (object): The current KDTree object.
-    
-
-        Returns:
-            - Tuple: A tuple containing the proposed model parameters and noise values.
-            - object: proposalmodel - The proposed model object.
-            - float: proposalvpvs - The proposed VP/VS ratio.
-            - ndarray: proposalrfnoise - The proposed RF noise parameters.
-            - ndarray: proposalswdnoise - The proposed SWD noise parameters.
-            - float: dvs2 - The squared difference in Vs between the current and proposed models.
-            - float: dra2 - The squared difference in Ra between the current and proposed models.
-            - object: birthnucleus - The proposed birth nucleus if applicable.
-            - int: ind_death - The index of the proposed death if applicable.
-
-        """
-        # Set current model parameters
         self.currentmodel = model
         self.currentrfnoise = None
         self.currentvpvs = vpvs
@@ -374,8 +376,6 @@ exponential law. Explicitly state a noise reference for your user target \
         self.currentkdtree = currentkdtree
         self.vnoi_move2 = False
 
-
-        # Generate proposals based on the modification type
         if modify in ['vsmod', 'ramod', 'vmod', 'zvmod', 'zbirth', 'birth', 'death']:
             proposalmodel = self._get_modelproposal(modify)
             proposalrfnoise = self.currentrfnoise
@@ -415,17 +415,16 @@ exponential law. Explicitly state a noise reference for your user target \
     def _validvpvs(self, vpvs):
         # only works if vpvs-priors is a range
         if vpvs < self.priors['vpvs'][0] or \
-                vpvs > self.priors['vpvs'][1]:
-
-            return False
-    
+                    vpvs > self.priors['vpvs'][1]:
+                return False
+       
         return True
         
     def _get_vpvs_proposal(self):
         vpvs = copy.deepcopy(self.currentvpvs)
         vpvs_mod = self.rstate.normal(0, self.propdist[7])
         vpvs = vpvs + vpvs_mod
-
+     
         return vpvs
     
     def _validswdnoise(self, noise):
@@ -446,6 +445,7 @@ exponential law. Explicitly state a noise reference for your user target \
                 idxn = 0
             else:
                 idxn = 1
+
 
             if noise[idx] < self.rfnoisepriors[idxn][0] or \
                 noise[idx] > self.rfnoisepriors[idxn][1]:
@@ -486,16 +486,16 @@ exponential law. Explicitly state a noise reference for your user target \
 
         if modify == 'rfnoise':
             noise = copy.deepcopy(self.currentrfnoise)
-
             self.rfcounters, ind = self._get_hyperparameter_proposalidx(self.rfnoiseinds, self.rfcounters)
 
         if modify == 'swdnoise':
             noise = copy.deepcopy(self.currentswdnoise)
-
             self.swdcounters, ind = self._get_hyperparameter_proposalidx(self.swdnoiseinds, self.swdcounters)
    
         noise[ind] = noise[ind] + noise_mod
         return noise
+
+
 
 
     def _validnlayers(self, model):
@@ -513,13 +513,13 @@ exponential law. Explicitly state a noise reference for your user target \
         - The model must contain all values > 0.
         """
         vs, ra, vnoi = model[0], model[1], model[2]
+
         # check whether ncells lies within the prior
         ncellmin, ncellmax = self.priors['ncells']
         ncells = len(vs)
         if not (ncells >= ncellmin and ncells <= ncellmax):
 
             return False
-
         # check whether vs lies within the prior
         vsmin = self.priors['vs'][0]
         vsmax = self.priors['vs'][1]
@@ -539,25 +539,28 @@ exponential law. Explicitly state a noise reference for your user target \
 
                 return False
 
+
         # check whether interfaces lie within prio
         x = vnoi[:, 0]
         y = vnoi[:, 1]
         z = vnoi[:, 2]
         if np.any(x < self.grids['gridx'][0]) or np.any(x > self.grids['gridx'][1]):
-            return False
 
+            return False
         if np.any(y < self.grids['gridy'][0]) or np.any(y > self.grids['gridy'][1]):
 
             return False
 
         if np.any(z < self.grids.zmin) or np.any(z > self.grids.zmax):
+
             return False
 
-
         new_array = [tuple(row) for row in vnoi]
+    
         uniques = np.unique(new_array, axis=0)
         if len(vnoi) !=  len(uniques):
             return False
+   
 
         return True
 
@@ -570,7 +573,6 @@ exponential law. Explicitly state a noise reference for your user target \
         vs_vnoi, ra_vnoi, vnoi = model[0], model[1], model[2]
 
         # pick a random depth as a new nucleus
-        # voronoi cells info
         nucleus_x = np.array(0.5*(self.grids.xmin+self.grids.xmax))
         nucleus_y = np.array(0.5*(self.grids.xmin+self.grids.xmax))
         nucleus_z = np.random.uniform(self.grids.zmin, self.grids.zmax)
@@ -599,9 +601,6 @@ exponential law. Explicitly state a noise reference for your user target \
         else:
             ra_new = np.concatenate((ra_vnoi, [ra_before]))
 
-        if self.priors['vpvsfix'] == False:
-            currentvpvs_before = self.currentvpvs[kdtreeidx]
-            self.propvpvs = np.concatenate((self.currentvpvs, [currentvpvs_before]))
         
         return [vs_new, ra_new, vnoi_new]
 
@@ -643,10 +642,6 @@ exponential law. Explicitly state a noise reference for your user target \
             self.dra2 = np.square(ra_birth - ra_before)
         else:
             ra_new = np.concatenate((ra_vnoi, [ra_before]))
-
-        if self.priors['vpvsfix'] == False:
-            currentvpvs_before = self.currentvpvs[kdtreeidx]
-            self.propvpvs = np.concatenate((self.currentvpvs, [currentvpvs_before]))
         
         return [vs_new, ra_new, vnoi_new]
 
@@ -675,8 +670,7 @@ exponential law. Explicitly state a noise reference for your user target \
         self.dvs2 = np.square(vs_after - vs_before)
         self.dra2 = np.square(ra_after - ra_before)
 
-        if self.priors['vpvsfix'] == False:
-            self.propvpvs = np.delete( self.currentvpvs, ind)
+
 
         return [vs_new, ra_new, vnoi_new]
 
@@ -696,7 +690,7 @@ exponential law. Explicitly state a noise reference for your user target \
         """Randomly chose a cell to change (x_vnoi, y_vnoi, z_vnoi) with Gauss distribution."""
         self.vnoi_move_ind = ind
 
-        # Randomly choose a direction to change
+        # Randomly choose a direction to change!!!!!
         ind_dir = self.rstate.randint(0, 3)
         vnoi_mod = self.rstate.normal(0, self.propdist[propidx])
 
@@ -716,8 +710,8 @@ exponential law. Explicitly state a noise reference for your user target \
         """Randomly chose a cell to change (z_vnoi) with Gauss distribution."""
         self.vnoi_move_ind = ind
 
-        # only z direction can be changed!!!!!
-        ind_dir = 2 
+        # Randomly choose a direction to change!!!!!
+        ind_dir = 2 #self.rstate.randint(0, 3)
 
         if model[2][ind][2] > ((self.grids.zmax+self.grids.zmin)/2):
             propidx = PROPDIST['vmod2']
@@ -727,16 +721,15 @@ exponential law. Explicitly state a noise reference for your user target \
         else:
             vnoi_mod = self.rstate.normal(0, self.propdist[propidx])
 
-
         model[2][ind][ind_dir] = model[2][ind][ind_dir] + vnoi_mod
         self.vnoi_move_cell = np.vstack((model[2][ind])).T
         return model
     
     def _get_modelproposal(self, modify):
         model = copy.deepcopy(self.currentmodel)
-        ind = self.rstate.randint(0, model[0].size)
 
 
+        ind = self.rstate.randint(0, model[0].size) 
         if modify == 'vsmod':
             propidx = PROPDIST[modify]
             propmodel = self._model_vschange(ind,model, propidx)
@@ -761,7 +754,6 @@ exponential law. Explicitly state a noise reference for your user target \
             vspropidx = PROPDIST['vsbirth/death']
             rapropidx = PROPDIST['rabirth/death']
             propmodel = self._model_celldeath(ind,model, vspropidx, rapropidx)
-
         return propmodel
 
 class RecursiveSampleMoments:

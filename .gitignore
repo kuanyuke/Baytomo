@@ -1,0 +1,22 @@
+# Ignore build / packaging output at top level
+build/
+Baytomo.egg-info/
+
+# Ignore temporary docs folder
+docstmp/
+
+# Ignore test / old folders you do not want
+OLDTEST/
+example_paper2/
+src_test/
+old/
+# Ignore Python cache everywhere
+__pycache__/
+*.pyc
+
+# Ignore specific things inside src
+src/NOFORGIT/
+src/extensions/build/
+src/extensions/lib.linux-x86_64-cpython-38
+src/extensions/temp.linux-x86_64-cpython-38
+src/NOFORGIT/__pycache__/

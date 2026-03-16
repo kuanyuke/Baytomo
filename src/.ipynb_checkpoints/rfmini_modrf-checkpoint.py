@@ -186,10 +186,10 @@ class RFminiModRF(object):
         nsv: tuple with near-surface S velocity and Poisson's ratio
             (will be computed by input model, if None)
         """
-        gauss = self.modelparams['gauss'][idx] 
+        gauss = self.modelparams['gauss']#[idx]
         water = self.modelparams['water']#[idx]
         #p = p#self.modelparams['p']#/degrees2kilometers
-        p = float(self.modelparams['p'][idx]) 
+        p = float(self.modelparams['p'][idx]) #laptop
         wtype = self.modelparams['wtype']#[idx]
         nsv = self.modelparams['nsv'][idx]
         
