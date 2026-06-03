@@ -215,19 +215,13 @@ class Sampling(object):
                     init_corrfix = False
                     init_noise_value = self.rstate.uniform(
                             low=noiseprior[0], high=noiseprior[1])
-                    #if  targets.nswdtargets !=0 and noiseprior[1] < 0.01:
+
                     if  targets.nswdtargets !=0 and noiseprior[0] < 0.005:
                         noisemin= 0.005
-                    #if  targets.nswdtargets !=0 and noiseprior[1] >= 0.01:
-                    ##    noisemin= 0.005
-                     #   noisemax = 0.01
                     else:
                         noisemin = noiseprior[0] 
-                        #noisemax = noiseprior[1] 
-                    
+
                     init_noise_value =  self.rstate.uniform(noisemin, noiseprior[1]) 
-                    #init_noise_value =  self.rstate.uniform(noiseprior[0] , noisemax) 
-                    #init_noise_value = 0.005
 
                 self.rfnoisepriors.append(noiseprior)
                 for i in range(target.obsdata.nobs):

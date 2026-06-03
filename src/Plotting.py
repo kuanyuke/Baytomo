@@ -1017,7 +1017,72 @@ class PlotFromStorage(object):
         distance = radius * c
         return distance
 
-    import copy
+    def _unique_legend( handles, labels):
+        # if a key is double, the last handle in the row is returned to the key
+        legend = OrderedDict(zip(labels, handles))
+        return legend.values(), legend.keys()
+
+    def plot_vel(self, target, mod=True):
+        nobs = len(target.obsdata.y)
+        nfigs = int(nobs/12) + 1
+        
+        figlists = []
+        figures = []
+        axes = []
+        nplot_obs = 0
+        pair_dist = []
+        if target.noiseref == 'rf':
+            ylabel = 'Amplitude'
+        elif target.noiseref == 'swd':
+            ylabel = 'Travel time in s'
+        
+        for i in range(nfigs):
+            fig, ax = plt.subplots(6,5, figsize=(20,12))
+            fig.tight_layout()
+            for j in range(30):
+                x = int(j/5)
+                y = int(j%5)
+                nplot_obs = int(nplot_obs)
+                
+                if nplot_obs >= nobs:
+                    fig.delaxes(ax[x][y])
+                else:
+                    if target.noiseref == 'swd':
+                        y1 = target.obsdata.y[nplot_obs]
+                        ttm = y1[np.where(y1>0)]
+                        prd = target.obsdata.x[np.where(y1>0)]
+                        yerr = target.obsdata.yerr[nplot_obs][np.where(y1>0)]
+                        pair =  target.obsdata.pairs[nplot_obs]
+                        xx1, yy1 = target.obsdata.stas[pair[0]]
+                        xx2, yy2 = target.obsdata.stas[pair[1]]
+                        dist = np.sqrt((xx1-xx2)**2+(yy1-yy2)**2)
+                        ttm = (np.ones(len(ttm))*dist)/ttm
+                        pair_dist.append(dist)
+                        ax[x][y].set_ylim(2.85, 4)
+                    else:
+                        ttm = target.obsdata.y[nplot_obs]
+                        prd = target.obsdata.x                
+                        yerr = target.obsdata.yerr[nplot_obs]#[np.where(y1>0)]
+                    ax[x][y].errorbar(prd, ttm, yerr=yerr,
+                        label='obs', marker='x', ms=1, color='b', lw=0.8,
+                        elinewidth=0.7, zorder=1000)
+                    
+
+
+                nplot_obs += 1
+       
+
+    
+            fig.text(0.5, 0.00, target.moddata.xlabel, va='center', ha='center')
+            fig.text(0.00, 0.5,  ylabel, va='center', ha='center', rotation='vertical')
+        
+            filname = 'c_bestdatafits_%s%s'%(target.ref, i)
+            figlists.append(filname)
+            figures.append(fig)
+            axes.append(ax)
+
+
+        return figlists, figures, axes,pair_dist
 
     def plot_obsveldata( self, ax=None, mod=False):
         """Return subplot of all targets."""
@@ -1050,6 +1115,146 @@ class PlotFromStorage(object):
             
 
             return [nucleus_x,nucleus_y,nucleus_z]
+
+    def _unique_legend(self, handles, labels):
+        # if a key is double, the last handle in the row is returned to the key
+        legend = OrderedDict(zip(labels, handles))
+        return legend.values(), legend.keys()
+
+    def plot_datafits(self,ref =None, rfbaz= False):
+        """Plot best data fits from each chain and ever best,
+        ignoring outliers."""
+        
+        swdtarget= []
+        rftarget=[]
+        for target in (self.targets):
+            if target.noiseref == 'swd':
+                swdtarget.append(target)
+            else:
+                rftarget.append(target)
+            
+        
+        targets = Targets.JointTarget(swdtargets = swdtarget, rftargets=rftarget)
+        
+        
+        figlists, figs,axes, pair_dists = self.plot_obsveldata()
+        pair_dist = pair_dists[0]
+        thebestmisfit = 1e15
+        thebestchain = np.nan
+        
+
+        vsfiles = self.vsfiles[1]
+        
+       
+        for i, vsfile in enumerate(vsfiles):
+            chainidx, _, _ = self._return_c_p_t(vsfile)
+            if chainidx in self.outliers:
+                continue
+
+            vsmodels = self.load_txt(vsfile)
+            ramodels = self.load_txt(vsfile.replace('modelsvs', 'modelsra'))
+            vonmodels = self.load_vontxt(vsfile.replace('modelsvs', 'modelsvon'))
+            
+            vpvs = np.loadtxt(vsfile.replace('modelsvs', 'vpvs'))
+            misfits = np.loadtxt(vsfile.replace('modelsvs', 'misfits')).T[-1]
+            rfmisfits = np.loadtxt(vsfile.replace('modelsvs', 'misfits')).T[1]
+            rfnoises = np.loadtxt(vsfile.replace('modelsvs', 'rfnoise')).T[1::2].T
+
+            indx = np.argmin(misfits)
+            bestvs = vsmodels[indx]
+            bestra = ramodels[indx]
+            bestvon = [vonmodels[0][indx],vonmodels[1][indx],vonmodels[2][indx]]
+            bestvpvs = vpvs[indx]
+
+
+            nucleus = np.stack((bestvon[0],bestvon[1], bestvon[2]),axis=1)
+            kdtree = KDTree(nucleus)
+        
+            kdtreedist, kdtreeidx = kdtree.query(self.grids.gridsmodel)
+            
+            bestvp = bestvs * bestvpvs
+            gridvon, gridvp, gridvs, gridra = Model.kdtree_to_grid(nucleus=nucleus,vp=bestvp, vs=bestvs, ra=bestra,
+                                                          kdtreeidx=kdtreeidx)
+            rho = gridvp * 0.32 + 0.77
+            misfit = 0
+            for n, target in enumerate(targets.targets):
+
+                if target.noiseref == 'rf':
+                    if ref == 'rdispph':
+                        continue
+                    if rfbaz:
+                        print ("calcuate for RF BAZ")
+                        xmod, ymod = target.moddata.plugin.run_model( gridvp, gridvs, gridra, rho,  gridvon)
+                    else:
+                        print ("calcuate for RF STACK")
+                        xmod, ymod = target.moddata.plugin.run_model( gridvp, gridvs, gridra, rho)
+                    
+                else:
+                    if ref == 'prf':
+                        continue
+                    
+                    print ("calcuate for SWD")
+                    xmod, ymod = target.moddata.plugin.run_model( gridvp, gridvs, gridra, rho)
+                
+                if ymod is np.nan:
+                    
+                    continue
+                    
+                nfigs = int(len(target.obsdata.y)/30)+1
+                
+                for k in range (len(target.obsdata.y)):
+                    trace_idx = int(k%24)
+                    sta_idx = int(k/24)
+                    i = int(k/30)
+                    j = k-30*i
+                    x = int(j/5)
+                    y = int(j%5)
+
+                   
+                    if target.noiseref == 'swd':
+                        
+                        y1 = target.obsdata.y[k]
+                        ttm = ymod[k][np.where(y1>0)]
+                   
+                        vel = np.ones(len(ttm))*pair_dist[k]/ttm
+                        xmod = target.obsdata.x[np.where(y1>0)]
+                        pair =  target.obsdata.pairs[k]
+                        axes[n][i][x][y].set_title('Pair of %s and %s'% (pair[0], pair[1]))
+                        axes[n][i][x][y].plot(xmod, vel, color="grey", alpha=0.5, lw=1,label='mod')
+                    else:
+                        if chainidx ==0:
+                            axes[n][i][x][y].plot([0,30],[0,0], '--', color = 'grey')   
+                            axes[n][i][x][y].plot([0,0],[-0.2, 0.2], '--', color = 'grey')   
+                            axes[n][i][x][y].set_xlim(-5,30)
+                            axes[n][i][x][y].set_ylim(-0.12,0.18)
+                            
+                        rf =  ymod[k]
+                        xmod = target.obsdata.x
+                        rms = np.sqrt(np.mean((rf - target.obsdata.y[k])**2))
+                        misfit += rms
+                        
+                        if rfbaz: 
+                            axes[n][i][x][y].set_title('station of %s, trace %s '% (sta_idx,trace_idx )) #rfbaz
+                        else:
+                            axes[n][i][x][y].set_title('station of %s '% (k ))
+                        axes[n][i][x][y].plot(xmod, rf, color="grey", alpha=0.5, lw=1,label='mod', zorder=10)
+
+                        
+
+                    axes[n][i][x][y].legend().set_visible(False)
+                
+        for n, target in enumerate(targets.targets):   
+            if target.ref != ref:
+                continue
+            nfigs = int(len(target.obsdata.y)/30)+1
+            for i in range(nfigs):
+                han, lab = axes[n][i][0][0].get_legend_handles_labels()
+                handles, labels = self._unique_legend(han, lab)
+                filname = 'c_bestdatafits_%s%s.pdf'%(ref, i)
+                outfile = op.join(self.figpath,filname)
+                figs[n][i].savefig(outfile, bbox_inches="tight")
+
+        return figs
 
 
     def final_gridmodels(self, final=True, chainidx=0, n_jobs = 4, nsample =1000,refinenx=False):

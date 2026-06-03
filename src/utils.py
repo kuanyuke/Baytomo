@@ -33,37 +33,65 @@ def read_stas_dict(file,idx):
     return df.set_index(idx).T.to_dict('list') 
 
 
-def read_rfstas_dict2(file, idx):
+def read_rfstackstas_dict(file, idx):
     """
-    Processes a CSV file containing receiver function station data and returns dictionaries of source coordinates and back-azimuth values.
-
-    Parameters:
-    - file (str): The path to the CSV file to be read.
-    - idx (str): The column name used to group the data.
-
-    Returns:
-    - src_dict (dict): A dictionary where keys are source indices, and values are lists of source coordinates (x and y).
-    - baz_dict (dict): A dictionary where keys are source indices, and values are lists of back-azimuth values.
-    - bins_list (list): A list containing one bin value per unique source index.
-    """
-
-    df = pd.read_csv(file)
+    Reads a CSV file for stacked RF stations.
+    Only returns src_dict, p_list, and gauss_list.
+    Assumes one row per station (one stacked RF, one slowness, one gauss).
     
-    src_dict = {}
-    baz_dict = {}
-    bins_list = []
+    Parameters:
+    - file (str): Path to the CSV file.
+    - idx (str): Column name used as key (e.g. 'srcidx').
+    
+    Returns:
+    - src_dict (dict):   {srcidx: [src_x, src_y]}
+    - p_list (list):     slowness value per station
+    - gauss_list (list): gauss value per station
+    """
+    df = pd.read_csv(file)
 
-    for srcidx, group in df.groupby(idx): 
-        src_coords = group[['src_x', 'src_y']].iloc[0].tolist()
-        baz_values = group['baz'].tolist()
-        bins_value = group['bins'].iloc[0]  # Take only the first value
+    src_dict   = {}
+    p_list     = []
+    gauss_list = []
+
+    for srcidx, group in df.groupby(idx):
+        src_coords  = group[['src_x', 'src_y']].iloc[0].tolist()
+        p_value     = group['slowness'].iloc[0]
+        gauss_value = group['gauss'].iloc[0]
 
         src_dict[srcidx] = src_coords
-        baz_dict[srcidx] = baz_values
+        p_list.append(p_value)
+        gauss_list.append(gauss_value)
+
+    return src_dict, np.array(p_list), np.array(gauss_list)
+
+def read_rfbazstas_dict(file, idx):
+    """
+    Same as read_rfstas_dict but returns one bins value per srcidx
+    (legacy version kept for compatibility).
+    """
+    df = pd.read_csv(file)
+
+    src_dict   = {}
+    baz_dict   = {}
+    bins_list  = []
+    p_list     = []
+    gauss_list = []
+
+    for srcidx, group in df.groupby(idx):
+        src_coords   = group[['src_x', 'src_y']].iloc[0].tolist()
+        baz_values   = group['baz'].tolist()
+        bins_value   = group['bins'].iloc[0]
+        p_values     = group['slowness'].tolist()
+        gauss_values = group['gauss'].tolist()
+
+        src_dict[srcidx]  = src_coords
+        baz_dict[srcidx]  = baz_values
         bins_list.append(bins_value)
+        p_list.extend(p_values)
+        gauss_list.extend(gauss_values)
 
-    return src_dict, baz_dict, bins_list
-
+    return src_dict, baz_dict, bins_list,  np.array(p_list), np.array(gauss_list)
 
 
 def read_rfstas_dict(file, idx):
@@ -95,23 +123,6 @@ def read_rfstas_dict(file, idx):
     
     return src_dict, baz_dict,  df['bins'].tolist() 
 
-def read_rfstas_dict0(file, idx):
-    df = pd.read_csv(file)
-    
-    src_dict = {}
-    baz_dict = {}
-    bins_dict = {}
-    
-    for srcidx, group in df.groupby(idx): #df.groupby('srcidx'):
-        src_coords = group[['src_x', 'src_y']].iloc[0].tolist()
-        baz_values = group['baz'].tolist()
-        bins_value = group['bins'].iloc[0]  # Assuming bins is constant for each srcidx
-        
-        src_dict[srcidx] = src_coords
-        baz_dict[srcidx] = baz_values
-        bins_dict[srcidx] = bins_value
-
-    return src_dict, baz_dict, bins_dict
 
 
 def get_path(name):

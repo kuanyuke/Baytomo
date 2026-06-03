@@ -105,34 +105,6 @@ def run_raysum_thread_timeout(args, timeout=10):
     else:
         return None, "UNKNOWN_ERROR"
 
-
-# Signal handler to raise an exception when time limit is exceeded
-##def handler(signum, frame):
-#    raise TimeoutError("Timeout reached")
-
-#def run_raysum_interface(*args):
-#   try:
-#        result = raysum.raysum_interface(*args)
-#        return result
-#    except Exception as e:
-#        return None
-
-
-##def _pad(array, n):
-#    """
-#    Pad an array with zeros up to a specified length.
-
- #   Parameters:
-#        array (numpy.ndarray): Input array.
- #       n (int): Target length.
-
- #   Returns:
- #       numpy.ndarray: Padded array.
- #   """    
- ##   tmp = np.zeros(n)
- #   tmp[:array.shape[0]] = array
- #   return tmp
-
 def _gauss_filt(dt, nft, f0):
     """
     Generate a Gaussian filter for signal processing.
@@ -312,8 +284,8 @@ class RFraysumModRF(object):
         elif self.ref in ['srf']:
             self.modelparams = {'wtype': 'SV'}
         gauss = np.ones(self.nobs)
-        p =  np.ones(self.nobs ) *1.0
-        water =  np.ones(self.nobs ) *6.4
+        p =  np.ones(self.nobs ) * 6.4
+        water =  np.ones(self.nobs ) * 0.001
         nsv = np.full(self.nobs, None, dtype=object)
 
         self.modelparams.update(
@@ -509,39 +481,16 @@ class RFraysumModRF(object):
                 ntr, baz, slow, sta_dx, sta_dy,
                 mults, nsamp, dt, gauss, align, self.tshft, out_rot, phname_in)
 
-###        signal.signal(signal.SIGALRM, handler)
-###        signal.alarm(10)  # Set timeout in seconds
-    
-###        try:
-###            # Run the function
-###           result = raysum.raysum_interface(nlyar, h, rho, vp, vs, dp, ds, trend, plunge, strike, dip, iso, iphase,
-###                                             ntr, baz, slow, sta_dx, sta_dy, mults, nsamp, dt, gauss, align, self.tshft, out_rot, phname_in)
-###         signal.alarm(0)  # Cancel the alarm once function finishes before timeout
-            
-###        except TimeoutError:
-###            print(f"Timeout reached, stopping computation.")
-###            print (nlyar, h, rho, vp, vs, dp, ds, trend, plunge, strike, dip)
-###            return np.nan, np.nan  # Or any other appropriate value for timeout cases
-###        except Exception as e:
-###            print(f"Error in raysum_interface: {e}") 
-###            return np.nan, np.nan
-
-#        _,  _, _,  tr_cart, tr_ph = raysum.raysum_interface(nlyar, h, rho, vp, vs,
-#                                                   dp, ds, trend,
-#                                                   plunge, strike, dip, iso, iphase,
-#                                                   ntr, baz, slow, sta_dx, sta_dy,
-#                                                   mults, nsamp, dt, gauss, align, self.tshft, out_rot, phname_in)
-
         result, error = run_raysum_thread_timeout(args, timeout=10)
 
 
         if error == "TIMEOUT_KILLED":
             print (f"Raysum timeout/error for station: {error}")
-            #print (h, rho, vp, vs,strike, dip)
+
             return np.nan, np.nan
         if error:
             print (f"Raysum timeout/error for station: {error}")
-            #print (h, rho, vp, vs,strike, dip)
+
             return np.nan, np.nan
     
         _,  _, _,  tr_cart, tr_ph = result
@@ -552,7 +501,7 @@ class RFraysumModRF(object):
 
         
         for i in range(len(bazz)):
-            RFS =deconv_waterlevel(i, trROTs, nsamp, self.fsamp, dt, waterlevel=0.001, gfilt=1, rot = out_rot)
+            RFS =deconv_waterlevel(i, trROTs, nsamp, self.fsamp, dt, waterlevel=water, gfilt=1, rot = out_rot)
             if RFS is np.nan:
                 #print ("no values")
                 return np.nan, np.nan

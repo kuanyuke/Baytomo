@@ -86,8 +86,8 @@ class RFminiModRF(object):
         elif self.ref in ['srf']:
             self.modelparams = {'wtype': 'SV'}
         gauss = np.ones(self.nobs)
-        p =  np.ones(self.nobs ) *1.0
-        water =  np.ones(self.nobs ) *6.4
+        p =  np.ones(self.nobs ) * 6.4
+        water =  np.ones(self.nobs ) * 0.001
         nsv = np.full(self.nobs, None, dtype=object)
 
         self.modelparams.update(

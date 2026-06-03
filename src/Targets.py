@@ -330,11 +330,7 @@ class SingleTarget(object):
                 moddata = self.moddata.y[n]
                 sqaure_diff = sum((moddata - obsdata)**2) 
                 sqaure_diff_sum += sqaure_diff 
-                #misfit = self.valuation.get_rms( obsdata, moddata)
-                #misfits += misfit
-
-                
-
+              
         if self.noiseref == 'swd':       
             misfits = np.sqrt(sqaure_diff_sum/(self.obsdata.nttms))
         else:
@@ -535,7 +531,6 @@ class JointTarget(object):
        
             logL_target = logL_part - madist / 2.
 
-            #logL_target = (logL_part - madist / ( (2.*target.obsdata.bins[n])))
             logL += logL_target
 
         return logL

@@ -56,7 +56,7 @@ class SingleChain(object):
         self.grids.update(grids)
         self.initparams.update(initparams)
         self.priors.update(modelpriors)
-        self.station = self.initparams.get('station')
+        self.savename = self.initparams.get('savename')
 
         # Metrolopis rule
         self.dv = (self.priors['vs'][1] - self.priors['vs'][0])
@@ -103,7 +103,7 @@ class SingleChain(object):
 
         # save file for offline-plotting
         savepath = op.join(self.initparams['savepath'], 'data')
-        outfile = op.join(savepath, '%s_config.pkl' % self.station)
+        outfile = op.join(savepath, '%s_config.pkl' % self.savename)
         Path(savepath).mkdir(parents=True, exist_ok=True)
         self.extract_fromlastmodel_path = existdatapath
         if not op.exists(savepath) :
@@ -312,19 +312,6 @@ class SingleChain(object):
             return
         nnobs = 0
         for i, target in enumerate(self.targets.rftargets):
-            # if target.noiseref == 'swd':
-            #    if np.any(np.isnan(target.obsdata.yerr)):
-            # diagonal for each target, corr inrelevant for likelihood, rel error
-            # target.get_covariance = target.valuation.get_covariance_nocorr
-            #        continue
-            #    else:
-            # diagonal for each target, corr inrelevant for likelihood
-            # target.get_covariance = target.valuation.get_covariance_nocorr_scalederr
-            #       continue
-
-            # elif  target.noiseref == 'rf':
-            #   target_corrfix = corrfix[::2]
-            #   target_noise_corr = inoise[::2]
             nobs = target.obsdata.nobs
             
             start = nnobs
@@ -389,56 +376,6 @@ exponential law. Explicitly state a noise reference for your user target \
 
         self.sampling.update_prodist(self.propdist)
      
-
-                
-    def get_acceptance_probability2(self, modify):
-        """
-        Acceptance probability will be computed dependent on the modification.
-        Parametrization alteration (Vs or voronoi nuclei position)
-            the acceptance probability is equal to likelihood ratio.
-        Model dimension alteration (cell birth or death)
-            the probability was computed after the formulation of Bodin et al.,
-            2012: 'Transdimensional inversion of receiver functions and
-            surface wave dispersion'.
-        """
-        if modify in ['vsmod', 'ramod', 'vmod', 'zvmod','swdnoise', 'rfnoise', 'vpvs']:
-            # only velocity or thickness changes are made
-            # also used for noise changes
-            alpha = self.targets.proposallikelihoodjoint - self.currentlikelihoodjoint
-
-        elif modify in ['birth',  'zbirth']:
-            theta_vs = self.propdist[3]  # Gaussian distribution
-            theta_ra = self.propdist[4]  # Gaussian distribution)
-            if self.ramod:
-                A = (theta_vs * np.sqrt(2 * np.pi)) / self.dv
-                B = (theta_ra * np.sqrt(2 * np.pi)) / self.dra
-                C = self.dvs2 / (2. * np.square(theta_vs))
-                D = self.dra2 / (2. * np.square(theta_ra))
-                E = self.targets.proposallikelihood - self.currentlikelihoodjoint
-                alpha = np.log(A) + np.log(B) + C + D + E
-            else:
-                A = (theta_vs * np.sqrt(2 * np.pi)) / self.dv
-                B = self.dvs2 / (2. * np.square(theta_vs))
-                C = self.targets.proposallikelihood - self.currentlikelihoodjoint
-                alpha = np.log(A) + B + C
-                
-        elif modify in ['death', ]:
-            theta_vs = self.propdist[3]  # Gaussian distribution
-            theta_ra = self.propdist[4]  # Gaussian distribution
-
-            if self.ramod:
-                A = self.dv / (theta_vs * np.sqrt(2 * np.pi))
-                C = self.dra / (theta_ra * np.sqrt(2 * np.pi))
-                B = self.dvs2 / (2. * np.square(theta_vs))
-                D = self.dra2 / (2. * np.square(theta_ra))
-                E = self.targets.proposallikelihood - self.currentlikelihoodjoint
-                alpha = np.log(A) + np.log(B) - C - D + E
-            else:
-                A = self.dv / (theta_vs * np.sqrt(2 * np.pi))
-                B = self.dvs2 / (2. * np.square(theta_vs))
-                C = self.targets.proposallikelihood - self.currentlikelihoodjoint
-                alpha = np.log(A) - B + C
-        return alpha
 
     def get_acceptance_probability(self, modify):
         """
@@ -601,12 +538,7 @@ exponential law. Explicitly state a noise reference for your user target \
         if  self.iiter < (-self.iter_phase1 + (self.iter_phase1 * 0.01)):
 
             modifications=['vsmod', 'zvmod', 'zbirth', 'death']  + self.vpvsmods 
-           
-            #if  len(self.targets.targets )== 1:
             modifications += self.noisemods
-
-        #elif  self.iiter < (-self.iter_phase1 + (self.iter_phase1 * 0.03)) and len(self.targets.targets ) >  1:
-        #        modifications = self.modelmods +self.dimmods  + self.vpvsmods 
 
         else:   
             modifications =self.modifications
@@ -695,9 +627,6 @@ exponential law. Explicitly state a noise reference for your user target \
 
         # stabilize model acceptance rate
         if self.iiter % 1000 == 0:
-            #print(f'{self.chainidx}  iiter {self.iiter} ALL PROPOSED [ {", ".join(map(str, self.proposed))}]')
-            #print(f'{self.chainidx} iiter {self.iiter}  ACCEPT [ {" ".join(map(str, self.accepted))} ]')
-            #print(f'{self.chainidx} iiter {self.iiter} propdist {self.propdist}')
             if 'zvmod' in modifications:
                 index = modifications.index('zvmod')
                 modifications[index] = 'vmod'
@@ -767,7 +696,6 @@ exponential law. Explicitly state a noise reference for your user target \
         # Start interate
         pre_itr_time = 0
         while self.iiter < self.iter_phase2:
-            #print ("IITER", self.iiter )
             tnull = gettime.time()
             self.iterate()
 

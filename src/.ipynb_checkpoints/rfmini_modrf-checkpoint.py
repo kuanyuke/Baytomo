@@ -86,8 +86,8 @@ class RFminiModRF(object):
         elif self.ref in ['srf']:
             self.modelparams = {'wtype': 'SV'}
         gauss = np.ones(self.nobs)
-        p =  np.ones(self.nobs ) *1.0
-        water =  np.ones(self.nobs ) *6.4
+        p =  np.ones(self.nobs ) * 6.4
+        water =  np.ones(self.nobs ) * 0.001
         nsv = np.full(self.nobs, None, dtype=object)
 
         self.modelparams.update(
@@ -186,10 +186,10 @@ class RFminiModRF(object):
         nsv: tuple with near-surface S velocity and Poisson's ratio
             (will be computed by input model, if None)
         """
-        gauss = self.modelparams['gauss']#[idx]
+        gauss = self.modelparams['gauss'][idx] 
         water = self.modelparams['water']#[idx]
         #p = p#self.modelparams['p']#/degrees2kilometers
-        p = float(self.modelparams['p'][idx]) #laptop
+        p = float(self.modelparams['p'][idx]) 
         wtype = self.modelparams['wtype']#[idx]
         nsv = self.modelparams['nsv'][idx]
         
